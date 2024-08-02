@@ -42,7 +42,7 @@
    */
 
   ns.ArrayBufferSerializer = {
-    calculateRequiredBytes : function(piskel, framesData) {
+    calculateRequiredBytes: function (piskel, framesData) {
       var width = piskel.getWidth();
       var height = piskel.getHeight();
       var descriptorNameLength = piskel.getDescriptor().name.length;
@@ -85,7 +85,7 @@
       return bytes;
     },
 
-    serialize : function (piskel) {
+    serialize: function (piskel) {
       var i;
       var j;
       var layers;
@@ -95,10 +95,26 @@
       // Render frames
       var framesData = [];
       for (i = 0, layers = piskel.getLayers(); i < layers.length; i++) {
+        var costumeData = '';
+        if (i == 0) {
+          costumeData = {};
+          var frames = layers[0].getFrames();
+          for (var k = 0; k < frames.length; k++) {
+            var frame = frames[k];
+            if (frame.costume) {
+              costumeData[k] = frame.costume;
+            }
+          }
+          costumeData = encodeURIComponent(JSON.stringify(costumeData));
+        }
         var renderer = new pskl.rendering.FramesheetRenderer(layers[i].getFrames());
         dataUri = renderer.renderAsCanvas().toDataURL().split(',')[1];
+        if (costumeData) {
+          // join costume data with frame data
+          dataUri = costumeData + '\n' + dataUri;
+        }
         dataUriLength = dataUri.length;
-        framesData.push({uri: dataUri, length: dataUriLength});
+        framesData.push({ uri: dataUri, length: dataUriLength });
       }
 
       var frames = pskl.app.piskelController.getLayerAt(0).getFrames();

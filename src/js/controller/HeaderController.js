@@ -1,5 +1,5 @@
 (function () {
-  var ns  = $.namespace('pskl.controller');
+  var ns = $.namespace('pskl.controller');
 
   /**
    * When embedded in piskelapp.com, the page adds a header containing the name of the currently edited sprite
@@ -19,6 +19,7 @@
     $.subscribe(Events.PISKEL_DESCRIPTOR_UPDATED, this.updateHeader_.bind(this));
     $.subscribe(Events.PISKEL_RESET, this.updateHeader_.bind(this));
     $.subscribe(Events.PISKEL_SAVED_STATUS_UPDATE, this.updateHeader_.bind(this));
+    $.subscribe(Events.FRAME_INDEX_CHANGED, this.updateHeader_.bind(this));
 
     this.updateHeader_();
   };
@@ -26,6 +27,10 @@
   ns.HeaderController.prototype.updateHeader_ = function () {
     try {
       var name = this.piskelController.getPiskel().getDescriptor().name;
+      var frame = this.piskelController.getCurrentFrame();
+      if (frame && frame.costume) {
+        name = name + ' - ' + frame.costume.name;
+      }
       if (this.savedStatusService.isDirty()) {
         name = name + ' *';
       }

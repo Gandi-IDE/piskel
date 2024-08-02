@@ -9,7 +9,7 @@
    */
   ns.app = {
 
-    init : function () {
+    init: function () {
       /**
        * When started from APP Engine, appEngineToken_ (Boolean) should be set on window.pskl
        */
@@ -180,6 +180,7 @@
 
       this.initTooltips_();
 
+      // eslint-disable-next-line max-len
       var piskelData = this.getPiskelInitData_();
       if (piskelData && piskelData.piskel) {
         this.loadPiskel_(piskelData);
@@ -191,14 +192,14 @@
 
       if (pskl.utils.Environment.detectNodeWebkit() && pskl.utils.UserAgent.isMac) {
         var gui = require('nw.gui');
-        var mb = new gui.Menu({type : 'menubar'});
+        var mb = new gui.Menu({ type: 'menubar' });
         mb.createMacBuiltin('Piskel');
         gui.Window.get().menu = mb;
       }
 
       if (!pskl.utils.Environment.isIntegrationTest() && pskl.utils.UserAgent.isUnsupported()) {
         $.publish(Events.DIALOG_SHOW, {
-          dialogId : 'unsupported-browser'
+          dialogId: 'unsupported-browser'
         });
       }
 
@@ -206,9 +207,13 @@
         pskl.app.shortcutService.registerShortcut(pskl.service.keyboard.Shortcuts.DEBUG.RELOAD_STYLES,
           window.reloadStyles);
       }
+
+      if (window.opener) {
+        this.initGandiBridge();
+      }
     },
 
-    loadPiskel_ : function (piskelData) {
+    loadPiskel_: function (piskelData) {
       var serializedPiskel = piskelData.piskel;
       pskl.utils.serialization.Deserializer.deserialize(serializedPiskel, function (piskel) {
         pskl.app.piskelController.setPiskel(piskel);
@@ -220,28 +225,28 @@
       });
     },
 
-    getPiskelInitData_ : function () {
+    getPiskelInitData_: function () {
       return pskl.appEnginePiskelData_;
     },
 
-    isLoggedIn : function () {
+    isLoggedIn: function () {
       var piskelData = this.getPiskelInitData_();
       return piskelData && piskelData.isLoggedIn;
     },
 
-    initTooltips_ : function () {
+    initTooltips_: function () {
       $('body').tooltip({
         selector: '[rel=tooltip]'
       });
     },
 
-    render : function (delta) {
+    render: function (delta) {
       this.drawingController.render(delta);
       this.previewController.render(delta);
       this.framesListController.render(delta);
     },
 
-    getFirstFrameAsPng : function () {
+    getFirstFrameAsPng: function () {
       var frame = pskl.utils.LayerUtils.mergeFrameAt(this.piskelController.getLayers(), 0);
       var canvas;
       if (frame instanceof pskl.model.frame.RenderedFrame) {
@@ -252,11 +257,142 @@
       return canvas.toDataURL('image/png');
     },
 
-    getFramesheetAsPng : function () {
+    getFramesheetAsPng: function () {
       var renderer = new pskl.rendering.PiskelRenderer(this.piskelController);
       var framesheetCanvas = renderer.renderAsCanvas();
       return framesheetCanvas.toDataURL('image/png');
-    }
+    },
+
+    initGandiBridge: function () {
+      const urlParams = new URLSearchParams(window.location.search);
+      if (!urlParams.get('tid')) {
+        console.error('Missing tid in query params');
+        return;
+      }
+
+      window.addEventListener('message', function (event) {
+        // console.log('Received message from parent window', event.data);
+        if (event.data.name === 'plugin-piskel-data') {
+          const costumeData = event.data.data;
+          if (costumeData.dataFormat === 'svg') {
+            const svgString = new TextDecoder().decode(costumeData.assetData);
+            var blob = new Blob([svgString], { type: 'image/svg+xml' });
+          } else {
+            var blob = new Blob([costumeData.assetData], { type: `image/${costumeData.dataFormat}` });
+          }
+          const url = URL.createObjectURL(blob);
+          const img = new Image();
+          img.onload = function () {
+            var canvas = pskl.utils.CanvasUtils.createCanvas(640, 360);
+            var context = canvas.getContext('2d');
+            context.save();
+            pskl.utils.CanvasUtils.disableImageSmoothing(canvas);
+            context.translate(canvas.width / 2, canvas.height / 2);
+            context.drawImage(img, -costumeData.rotationCenter[0], -costumeData.rotationCenter[1]);
+            context.restore();
+
+            let piskel = this.piskelController.getPiskel();
+            const frame = pskl.utils.FrameUtils.createFromImage(canvas);
+            frame.costume = {
+              id: costumeData.costumeId,
+              name: costumeData.name,
+            };
+            let desc = piskel.getDescriptor();
+            if (!piskel || !(desc.name.startsWith('Gandi - ') && desc.description == urlParams.get('tid'))) {
+              let layer = pskl.model.Layer.fromFrames('Layer 1', [frame]);
+              let descriptor = new pskl.model.piskel.Descriptor(
+                'Gandi - ' + urlParams.get('tname'), urlParams.get('tid'));
+              piskel = pskl.model.Piskel.fromLayers([layer], Constants.DEFAULT.FPS, descriptor);
+              this.piskelController.setPiskel(piskel);
+              $.publish(Events.PISKEL_SAVED);
+            } else {
+              let fc = this.piskelController.getFrameCount();
+              let layers = piskel.getLayers();
+
+              // 遍历当前的 frame 有没有 costume.id 一样的，有的话替换，没有的话添加
+              let layer0 = layers[0];
+              let found = false;
+              for (let fi = 0; fi < fc; fi++) {
+                let f = layer0.getFrameAt(fi);
+                if (f.costume && f.costume.id === frame.costume.id) {
+                  found = true;
+                  layer0.frames[fi] = frame;
+                  this.piskelController.setCurrentFrameIndex(fi);
+                }
+              }
+
+              if (!found) {
+                for (let layerIdx = 0; layerIdx < layers.length; layerIdx++) {
+                  if (layerIdx == 0) {
+                    layers[layerIdx].addFrameAt(frame, fc);
+                  } else {
+                    layers[layerIdx].addFrameAt(this.piskelController.createEmptyFrame_(), fc);
+                  }
+                }
+                this.piskelController.setCurrentFrameIndex(fc);
+              }
+              this.framesListController.updateScrollerOverflows();
+              this.framesListController.flagForRedraw_(true);
+              $.publish(Events.PISKEL_SAVE_STATE, {
+                type: pskl.service.HistoryService.SNAPSHOT
+              });
+            }
+          }.bind(this);
+          img.src = url;
+        }
+      }.bind(this), false);
+
+      window.opener.postMessage({
+        name: 'plugin-piskel-loaded',
+        tid: urlParams.get('tid'),
+      }, '*');
+
+      window.addEventListener('beforeunload', function () {
+        window.opener.postMessage({
+          name: 'plugin-piskel-unloaded',
+          tid: urlParams.get('tid'),
+        }, '*');
+      });
+
+      $.subscribe(Events.PISKEL_SAVED, function () {
+        for (var i = 0; i < this.piskelController.getFrameCount(); i++) {
+          let layer0 = this.piskelController.getLayerAt(0);
+          let frame = layer0.getFrameAt(i);
+          let canvas = this.piskelController.renderFrameAt(i, true);
+          // console.log('saving frame', frame);
+          if (frame.costume) {
+            let ctx = canvas.getContext('2d');
+            let imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+            let buffer = imageData.data.buffer;
+            window.opener.postMessage({
+              name: 'plugin-piskel-update',
+              data: buffer,
+              fileType: 'image/png',
+              width: canvas.width,
+              height: canvas.height,
+              costumeId: frame.costume.id,
+            }, '*');
+          } else if (frame.cloneCostume) {
+            canvas.toBlob(function (blob) {
+              const reader = new FileReader();
+              reader.onload = function () {
+                let desc = this.piskelController.getPiskel().getDescriptor();
+                let targetId = desc.description;
+                // console.log('sending clone costume', frame.cloneCostume, targetId);
+                window.opener.postMessage({
+                  name: 'plugin-piskel-add',
+                  data: reader.result,
+                  fileType: 'image/png',
+                  fileName: frame.cloneCostume.name,
+                  targetId: targetId,
+                }, '*');
+              }.bind(this);
+              reader.readAsArrayBuffer(blob);
+            }.bind(this), 'image/png');
+          }
+        }
+      }.bind(this));
+    },
   };
 })();
 

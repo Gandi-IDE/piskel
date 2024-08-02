@@ -104,6 +104,12 @@
     var frame = this.frames[index];
     if (frame) {
       var clone = frame.clone();
+      if (frame.costume) {
+        clone.cloneCostume = frame.costume;
+      }
+      if (frame.cloneCostume) {
+        clone.cloneCostume = frame.cloneCostume;
+      }
       this.addFrameAt(clone, index);
     } else {
       console.error('Frame not found in duplicateFrameAt (at %s)', index);

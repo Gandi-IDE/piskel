@@ -12,7 +12,7 @@
    *
    */
   ns.ArrayBufferDeserializer = {
-    deserialize : function (data, callback) {
+    deserialize: function (data, callback) {
       var i;
       var j;
       var buffer = data;
@@ -68,13 +68,14 @@
       // Layers
       var layers = [];
       var layer;
+      var costumeData;
       for (i = 0; i < layerCount; i++) {
         layer = {};
         var frames = [];
 
         // Meta
         var layerNameLength = arr16[currentIndex];
-        var opacity =  arr16[currentIndex + 1] / 65535;
+        var opacity = arr16[currentIndex + 1] / 65535;
         var frameCount = arr16[currentIndex + 2];
         var dataUriLengthFirstHalf = arr16[currentIndex + 3];
         var dataUriLengthSecondHalf = arr16[currentIndex + 4];
@@ -90,6 +91,13 @@
         var dataUri = '';
         for (j = 0; j < dataUriLength; j++) {
           dataUri += String.fromCharCode(arr8[(currentIndex + 5 + layerNameLength) * 2 + j]);
+        }
+        if (i == 0) {
+          const splited = dataUri.split('\n');
+          if (splited.length > 1 && splited[0]) {
+            dataUri = splited[1];
+            costumeData = JSON.parse(decodeURIComponent(splited[0]));
+          }
         }
         dataUri = 'data:image/png;base64,' + dataUri;
 
@@ -107,13 +115,19 @@
       piskel.hiddenFrames = hiddenFrames;
       var loadedLayers = 0;
 
-      var loadLayerImage = function(layer, cb) {
+      var loadLayerImage = function (layer, cb) {
         var image = new Image();
-        image.onload = function() {
+        var isFirst = loadedLayers == 0;
+        image.onload = function () {
           var frames = pskl.utils.FrameUtils.createFramesFromSpritesheet(this, layer.frameCount);
-          frames.forEach(function (frame) {
-            layer.model.addFrame(frame);
-          });
+          for (var i = 0; i < frames.length; i++) {
+            if (isFirst && costumeData) {
+              if (costumeData[i]) {
+                frames[i].costume = costumeData[i];
+              }
+            }
+            layer.model.addFrame(frames[i]);
+          }
 
           loadedLayers++;
           if (loadedLayers == layerCount) {

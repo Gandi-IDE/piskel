@@ -203,7 +203,7 @@
 
       // All the frames between fromIndex and toIndex changed their index.
       var isImpacted = index >= Math.min(fromIndex, toIndex) &&
-                       index <= Math.max(fromIndex, toIndex);
+        index <= Math.max(fromIndex, toIndex);
       if (isImpacted) {
         if (fromIndex < toIndex) {
           // If the frame moved to a higher index, all impacted frames had their index
@@ -236,6 +236,7 @@
   ns.PiskelController.prototype.setCurrentFrameIndex = function (index) {
     if (this.hasFrameAt(index)) {
       this.currentFrameIndex = index;
+      $.publish(Events.FRAME_INDEX_CHANGED);
     } else {
       window.console.error('Could not set current frame index to ' + index);
     }
@@ -319,7 +320,7 @@
     }
     if (!this.hasLayerForName_(name)) {
       var layer = new pskl.model.Layer(name);
-      for (var i = 0 ; i < this.getFrameCount() ; i++) {
+      for (var i = 0; i < this.getFrameCount(); i++) {
         layer.addFrame(this.createEmptyFrame_());
       }
       var currentLayerIndex = this.getCurrentLayerIndex();
