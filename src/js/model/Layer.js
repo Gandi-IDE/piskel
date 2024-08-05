@@ -105,12 +105,12 @@
     if (frame) {
       var clone = frame.clone();
       if (frame.costume) {
-        clone.cloneCostume = frame.costume;
+        clone.costume = {
+          id: `temp-${crypto.randomUUID()}`,
+          name: frame.costume.name,
+        };
       }
-      if (frame.cloneCostume) {
-        clone.cloneCostume = frame.cloneCostume;
-      }
-      this.addFrameAt(clone, index);
+      this.addFrameAt(clone, index + 1);
     } else {
       console.error('Frame not found in duplicateFrameAt (at %s)', index);
     }

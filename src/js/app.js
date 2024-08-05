@@ -270,6 +270,18 @@
         return;
       }
 
+      let descriptor = new pskl.model.piskel.Descriptor(
+        'Gandi - ' + urlParams.get('tname'),
+        urlParams.get('tid')
+      );
+      this.piskelController.getPiskel().setDescriptor(descriptor);
+      let frame0 = this.piskelController.getLayerAt(0).getFrameAt(0);
+      frame0.costume = {
+        id: `first-${crypto.randomUUID()}`,
+        name: 'costume1',
+      };
+      $.publish(Events.PISKEL_SAVED);
+
       window.addEventListener('message', function (event) {
         // console.log('Received message from parent window', event.data);
         if (event.data.name === 'plugin-piskel-data') {
@@ -283,12 +295,18 @@
           const url = URL.createObjectURL(blob);
           const img = new Image();
           img.onload = function () {
-            var canvas = pskl.utils.CanvasUtils.createCanvas(640, 360);
+            var canvas = pskl.utils.CanvasUtils.createCanvas(Constants.DEFAULT.WIDTH, Constants.DEFAULT.HEIGHT);
             var context = canvas.getContext('2d');
             context.save();
             pskl.utils.CanvasUtils.disableImageSmoothing(canvas);
             context.translate(canvas.width / 2, canvas.height / 2);
-            context.drawImage(img, -costumeData.rotationCenter[0], -costumeData.rotationCenter[1]);
+            context.drawImage(
+              img,
+              -costumeData.rotationCenter[0] / costumeData.bitmapResolution,
+              -costumeData.rotationCenter[1] / costumeData.bitmapResolution,
+              img.width / costumeData.bitmapResolution,
+              img.height / costumeData.bitmapResolution
+            );
             context.restore();
 
             let piskel = this.piskelController.getPiskel();
@@ -297,14 +315,10 @@
               id: costumeData.costumeId,
               name: costumeData.name,
             };
-            let desc = piskel.getDescriptor();
-            if (!piskel || !(desc.name.startsWith('Gandi - ') && desc.description == urlParams.get('tid'))) {
-              let layer = pskl.model.Layer.fromFrames('Layer 1', [frame]);
-              let descriptor = new pskl.model.piskel.Descriptor(
-                'Gandi - ' + urlParams.get('tname'), urlParams.get('tid'));
-              piskel = pskl.model.Piskel.fromLayers([layer], Constants.DEFAULT.FPS, descriptor);
-              this.piskelController.setPiskel(piskel);
-              $.publish(Events.PISKEL_SAVED);
+            let frame0 = piskel.getLayerAt(0).getFrameAt(0);
+            if (frame0.costume && frame0.costume.id.startsWith('first-')) {
+              piskel.getLayerAt(0).frames[0] = frame;
+              this.piskelController.setCurrentFrameIndex(0);
             } else {
               let fc = this.piskelController.getFrameCount();
               let layers = piskel.getLayers();
@@ -331,14 +345,29 @@
                 }
                 this.piskelController.setCurrentFrameIndex(fc);
               }
-              this.framesListController.updateScrollerOverflows();
-              this.framesListController.flagForRedraw_(true);
+            }
+            this.framesListController.updateScrollerOverflows();
+            this.framesListController.flagForRedraw_(true);
+            $.publish(Events.PISKEL_SAVE_STATE, {
+              type: pskl.service.HistoryService.SNAPSHOT
+            });
+          }.bind(this);
+          img.src = url;
+        } else if (event.data.name === 'plugin-piskel-sync') {
+          const { tempCostumeId, costumeId, name } = event.data.data;
+          for (var i = 0; i < this.piskelController.getFrameCount(); i++) {
+            let layer0 = this.piskelController.getLayerAt(0);
+            let frame = layer0.getFrameAt(i);
+            if (tempCostumeId && frame.costume && frame.costume.id === tempCostumeId) {
+              frame.costume.id = costumeId;
+              frame.costume.name = name;
+              this.piskelController.setCurrentFrameIndex(i);
               $.publish(Events.PISKEL_SAVE_STATE, {
                 type: pskl.service.HistoryService.SNAPSHOT
               });
+              break;
             }
-          }.bind(this);
-          img.src = url;
+          }
         }
       }.bind(this), false);
 
@@ -358,11 +387,21 @@
         for (var i = 0; i < this.piskelController.getFrameCount(); i++) {
           let layer0 = this.piskelController.getLayerAt(0);
           let frame = layer0.getFrameAt(i);
-          let canvas = this.piskelController.renderFrameAt(i, true);
+          const bitmapResolution = 2;
+
+          let canvas = pskl.utils.CanvasUtils.createCanvas(
+            frame.getWidth() * bitmapResolution,
+            frame.getHeight() * bitmapResolution
+          );
+          let context = canvas.getContext('2d');
+          this.piskelController.getLayers().forEach(function (l) {
+            let render = pskl.utils.FrameUtils.toImage(l.getFrameAt(i), bitmapResolution, true);
+            context.drawImage(render, 0, 0, render.width, render.height, 0, 0, canvas.width, canvas.height);
+          });
+
           // console.log('saving frame', frame);
-          if (frame.costume) {
-            let ctx = canvas.getContext('2d');
-            let imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+          if (frame.costume && !frame.costume.id.startsWith('temp-') && !frame.costume.id.startsWith('first-')) {
+            let imageData = context.getImageData(0, 0, canvas.width, canvas.height);
             let buffer = imageData.data.buffer;
             window.opener.postMessage({
               name: 'plugin-piskel-update',
@@ -372,19 +411,27 @@
               height: canvas.height,
               costumeId: frame.costume.id,
             }, '*');
-          } else if (frame.cloneCostume) {
+          } else {
+            if (!frame.costume) {
+              frame.costume = {
+                id: `temp-${crypto.randomUUID()}`,
+                name: `frame-${i}`,
+              };
+            } else {
+              frame.costume.id = `temp-${crypto.randomUUID()}`;
+            }
             canvas.toBlob(function (blob) {
               const reader = new FileReader();
               reader.onload = function () {
                 let desc = this.piskelController.getPiskel().getDescriptor();
                 let targetId = desc.description;
-                // console.log('sending clone costume', frame.cloneCostume, targetId);
                 window.opener.postMessage({
                   name: 'plugin-piskel-add',
                   data: reader.result,
                   fileType: 'image/png',
-                  fileName: frame.cloneCostume.name,
+                  fileName: frame.costume.name,
                   targetId: targetId,
+                  tempCostumeId: frame.costume.id,
                 }, '*');
               }.bind(this);
               reader.readAsArrayBuffer(blob);
